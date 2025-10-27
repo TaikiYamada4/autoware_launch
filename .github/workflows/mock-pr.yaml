@@ -72,6 +72,7 @@ jobs:
         if: github.event.action != 'closed'
         id: sync
         run: |
+          set -e
           base_branch="${{ github.event.pull_request.base.ref }}"
           target_branch="${{ needs.find-target-branch.outputs.target_branch }}"
           pr_branch="${{ github.event.pull_request.head.ref }}"
@@ -98,7 +99,12 @@ jobs:
 
           # Cherry-pick each commit onto sync branch
           for commit in $commits; do
-            git cherry-pick "$commit" || (echo "Cherry-pick failed on $commit" && exit 1)
+            echo "Applying commit $commit"
+            git cherry-pick "$commit" || {
+              echo "Cherry-pick failed on $commit. Aborting."
+              git cherry-pick --abort
+              exit 1
+            }
           done
 
           git push origin "$sync_branch" --force
