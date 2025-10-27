@@ -1,6 +1,6 @@
 /**:
   ros__parameters:
-    timer_period: 0.5                             # [sec]
+    timer_period: 1.0                             # [sec]
 
     heading_velocity_maximum: 16.667              # [m/s]
     heading_velocity_scale_factor_tolerance: 3.0  # [%]
