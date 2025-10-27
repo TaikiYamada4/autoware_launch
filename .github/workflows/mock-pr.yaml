@@ -86,7 +86,7 @@ jobs:
             echo "Existing sync branch found, checking out"
             git fetch origin "$sync_branch"
             git checkout "$sync_branch"
-            git reset --hard "$target_branch"  # reset to target branch to start clean
+            git reset --hard "origin/$target_branch"
           else
             echo "Creating new sync branch from target branch"
             git checkout -b "$sync_branch" "origin/$target_branch"
