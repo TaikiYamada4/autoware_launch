@@ -25,6 +25,7 @@ jobs:
 
           if [[ "$base_branch" =~ $regex ]]; then
             target_branch="${base_branch}-mock"
+            git fetch origin "$target_branch" || true
             if git ls-remote --exit-code origin "$target_branch" >/dev/null 2>&1; then
               echo "✅ Matched and found target branch: $target_branch"
               echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
