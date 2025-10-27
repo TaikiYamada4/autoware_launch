@@ -79,27 +79,29 @@ jobs:
 
           echo "Sync branch: $sync_branch"
 
-          git fetch origin "$target_branch" "$pr_branch" || true
+          git fetch origin "$base_branch" "$pr_branch" "$target_branch" || true
+          
+          # Create or checkout sync branch based on target branch
           if git ls-remote --exit-code origin "$sync_branch" >/dev/null 2>&1; then
-            echo "Existing sync branch found, updating."
+            echo "Existing sync branch found, checking out"
             git fetch origin "$sync_branch"
             git checkout "$sync_branch"
+            git reset --hard "$target_branch"  # reset to target branch to start clean
           else
-            echo "Creating new sync branch from $target_branch"
-            if git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
-              git checkout -b "$sync_branch" "origin/${target_branch}"
-            else
-              git checkout -b "$sync_branch" "origin/${base_branch}"
-            fi
+            echo "Creating new sync branch from target branch"
+            git checkout -b "$sync_branch" "origin/$target_branch"
           fi
 
-          # Cherry-pick only PR commits
-          commits=$(git log --format="%H" "origin/$target_branch"..origin/"$pr_branch")
+          # Determine commits in the PR branch that are not in the original base
+          pr_base_commit=$(git merge-base "origin/$base_branch" "origin/$pr_branch")
+          commits=$(git log --format="%H" "$pr_base_commit"..origin/"$pr_branch")
+
+          # Cherry-pick each commit onto sync branch
           for commit in $commits; do
             git cherry-pick "$commit" || (echo "Cherry-pick failed on $commit" && exit 1)
           done
 
-          git push origin "$sync_branch"
+          git push origin "$sync_branch" --force
           echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
 
       - name: Create or update PR to target branch
