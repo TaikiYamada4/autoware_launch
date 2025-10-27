@@ -115,7 +115,7 @@ jobs:
           existing_pr=$(gh pr list --base "$target_branch" --head "$sync_branch" --json number --jq '.[0].number')
 
           if [ -n "$existing_pr" ]; then
-            gh pr close "$existing_pr" --comment "Closed automatically because the source PR was closed."
+            gh pr close "$existing_pr" --comment "Closed automatically because the source PR was closed." --repo "$GITHUB_REPOSITORY"
           else
             echo "No matching sync PR found to close."
           fi
