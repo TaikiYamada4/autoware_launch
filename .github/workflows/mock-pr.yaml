@@ -36,7 +36,7 @@ jobs:
 
       - name: Stop if not matched
         if: steps.check.outputs.match == 'false'
-        run: echo "Skipping non-hoge branch." && exit 0
+        run: echo "Skipping non-hoge branch." && exit 78
 
       - name: Checkout repo
         if: github.event.action != 'closed'
