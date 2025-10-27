@@ -11,6 +11,17 @@ jobs:
       target_branch: ${{ steps.check.outputs.target_branch }}
 
     steps:
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      
       - name: Detect base branch and compute mock target
         id: check
         run: |
@@ -25,7 +36,6 @@ jobs:
 
           if [[ "$base_branch" =~ $regex ]]; then
             target_branch="${base_branch}-mock"
-            git fetch origin "$target_branch" || true
             if git ls-remote --exit-code origin "$target_branch" >/dev/null 2>&1; then
               echo "✅ Matched and found target branch: $target_branch"
               echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
