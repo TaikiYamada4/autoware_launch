@@ -11,6 +11,17 @@ jobs:
       target_branch: ${{ steps.check.outputs.target_branch }}
 
     steps:
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      
       - name: Detect base branch and compute mock target
         id: check
         run: |
@@ -25,12 +36,13 @@ jobs:
 
           if [[ "$base_branch" =~ $regex ]]; then
             target_branch="${base_branch}-mock"
-            if git ls-remote --exit-code origin "$branch_name" >/dev/null 2>&1; then
+            if git ls-remote --exit-code origin "$target_branch" >/dev/null 2>&1; then
               echo "✅ Matched and found target branch: $target_branch"
               echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
             else
               echo "⚠️ Branch $target_branch not found, skipping."
               exit 1
+            fi
           else
             echo "⚠️ No regex match, skipping."
             exit 0
@@ -67,27 +79,29 @@ jobs:
 
           echo "Sync branch: $sync_branch"
 
-          git fetch origin "$target_branch" "$pr_branch" || true
+          git fetch origin "$base_branch" "$pr_branch" "$target_branch" || true
+          
+          # Create or checkout sync branch based on target branch
           if git ls-remote --exit-code origin "$sync_branch" >/dev/null 2>&1; then
-            echo "Existing sync branch found, updating."
+            echo "Existing sync branch found, checking out"
             git fetch origin "$sync_branch"
             git checkout "$sync_branch"
+            git reset --hard "origin/$target_branch"
           else
-            echo "Creating new sync branch from $target_branch"
-            if git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
-              git checkout -b "$sync_branch" "origin/${target_branch}"
-            else
-              git checkout -b "$sync_branch" "origin/${base_branch}"
-            fi
+            echo "Creating new sync branch from target branch"
+            git checkout -b "$sync_branch" "origin/$target_branch"
           fi
 
-          # Cherry-pick only PR commits
-          commits=$(git log --format="%H" "origin/$target_branch"..origin/"$pr_branch")
+          # Determine commits in the PR branch that are not in the original base
+          pr_base_commit=$(git merge-base "origin/$base_branch" "origin/$pr_branch")
+          commits=$(git log --no-merges --format="%H" "$pr_base_commit"..origin/"$pr_branch")
+
+          # Cherry-pick each commit onto sync branch
           for commit in $commits; do
             git cherry-pick "$commit" || (echo "Cherry-pick failed on $commit" && exit 1)
           done
 
-          git push origin "$sync_branch"
+          git push origin "$sync_branch" --force
           echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
 
       - name: Create or update PR to target branch
