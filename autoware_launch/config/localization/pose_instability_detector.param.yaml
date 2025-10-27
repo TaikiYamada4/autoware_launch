@@ -20,4 +20,4 @@
       position_z: true
       angle_x: false
       angle_y: false
-      angle_z: true
+      angle_z: false
