@@ -25,9 +25,12 @@ jobs:
 
           if [[ "$base_branch" =~ $regex ]]; then
             target_branch="${base_branch}-mock"
-            echo "✅ Matched regex; target branch: $target_branch"
-            echo "match=true" >> "$GITHUB_OUTPUT"
-            echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
+            if git ls-remote --exit-code origin "$branch_name" >/dev/null 2>&1; then
+              echo "✅ Matched and found target branch: $target_branch"
+              echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
+            else
+              echo "⚠️ Branch $target_branch not found, skipping."
+              exit 1
           else
             echo "⚠️ No regex match, skipping."
             exit 0
@@ -48,7 +51,6 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Checkout repo
-        if: github.event.action != 'closed'
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
@@ -65,7 +67,7 @@ jobs:
 
           echo "Sync branch: $sync_branch"
 
-          git fetch origin "$target_branch" || true
+          git fetch origin "$target_branch" "$pr_branch" || true
           if git ls-remote --exit-code origin "$sync_branch" >/dev/null 2>&1; then
             echo "Existing sync branch found, updating."
             git fetch origin "$sync_branch"
@@ -79,7 +81,12 @@ jobs:
             fi
           fi
 
-          git merge --no-edit "$pr_branch" || (echo "Merge failed" && exit 1)
+          # Cherry-pick only PR commits
+          commits=$(git log --format="%H" "origin/$target_branch"..origin/"$pr_branch")
+          for commit in $commits; do
+            git cherry-pick "$commit" || (echo "Cherry-pick failed on $commit" && exit 1)
+          done
+
           git push origin "$sync_branch"
           echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
 
@@ -100,6 +107,8 @@ jobs:
           else
             echo "PR #$existing_pr already exists — commits updated."
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-close synced PR when original closes
         if: github.event.action == 'closed'
@@ -113,7 +122,9 @@ jobs:
           existing_pr=$(gh pr list --base "$target_branch" --head "$sync_branch" --json number --jq '.[0].number')
 
           if [ -n "$existing_pr" ]; then
-            gh pr close "$existing_pr" --comment "Closed automatically because the source PR was closed."
+            gh pr close "$existing_pr" --comment "Closed automatically because the source PR was closed." --repo "$GITHUB_REPOSITORY"
           else
             echo "No matching sync PR found to close."
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
