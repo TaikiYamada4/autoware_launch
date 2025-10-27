@@ -1,0 +1,123 @@
+name: Auto-sync PRs to "-mock" branch
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+jobs:
+  find-target-branch:
+    runs-on: ubuntu-latest
+    outputs:
+      target_branch: ${{ steps.check.outputs.target_branch }}
+
+    steps:
+      - name: Detect base branch and compute mock target
+        id: check
+        run: |
+          base_branch="${{ github.event.pull_request.base.ref }}"
+          title="${{ github.event.pull_request.title }}"
+          action="${{ github.event.action }}"
+          regex='^hoge/v[0-9]+\.[0-9]+$'
+
+          echo "Event: $action"
+          echo "Base branch: $base_branch"
+          echo "Title: $title"
+
+          if [[ "$base_branch" =~ $regex ]]; then
+            target_branch="${base_branch}-mock"
+            echo "✅ Matched regex; target branch: $target_branch"
+            echo "match=true" >> "$GITHUB_OUTPUT"
+            echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
+          else
+            echo "⚠️ No regex match, skipping."
+            exit 0
+          fi
+
+  sync-mock:
+    runs-on: ubuntu-latest
+    needs: find-target-branch
+    if: ${{ needs.find-target-branch.outputs.target_branch != '' }}
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Configure Git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout repo
+        if: github.event.action != 'closed'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Prepare sync branch
+        if: github.event.action != 'closed'
+        id: sync
+        run: |
+          base_branch="${{ github.event.pull_request.base.ref }}"
+          target_branch="${{ needs.find-target-branch.outputs.target_branch }}"
+          pr_branch="${{ github.event.pull_request.head.ref }}"
+          sync_branch="sync-${pr_branch}-to-${target_branch}"
+
+          echo "Sync branch: $sync_branch"
+
+          git fetch origin "$target_branch" || true
+          if git ls-remote --exit-code origin "$sync_branch" >/dev/null 2>&1; then
+            echo "Existing sync branch found, updating."
+            git fetch origin "$sync_branch"
+            git checkout "$sync_branch"
+          else
+            echo "Creating new sync branch from $target_branch"
+            if git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
+              git checkout -b "$sync_branch" "origin/${target_branch}"
+            else
+              git checkout -b "$sync_branch" "origin/${base_branch}"
+            fi
+          fi
+
+          git merge --no-edit "$pr_branch" || (echo "Merge failed" && exit 1)
+          git push origin "$sync_branch"
+          echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update PR to target branch
+        if: github.event.action != 'closed'
+        run: |
+          target_branch="${{ needs.find-target-branch.outputs.target_branch }}"
+          sync_branch="${{ steps.sync.outputs.sync_branch }}"
+          existing_pr=$(gh pr list --base "$target_branch" --head "$sync_branch" --json number --jq '.[0].number')
+
+          if [ -z "$existing_pr" ]; then
+            echo "Creating new PR → $target_branch"
+            gh pr create \
+              --base "$target_branch" \
+              --head "$sync_branch" \
+              --title "Auto-sync: ${{ github.event.pull_request.title }}" \
+              --body "This PR automatically syncs changes from \`${{ github.event.pull_request.base.ref }}\` to \`${target_branch}\`."
+          else
+            echo "PR #$existing_pr already exists — commits updated."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-close synced PR when original closes
+        if: github.event.action == 'closed'
+        run: |
+          base_branch="${{ github.event.pull_request.base.ref }}"
+          target_branch="${base_branch}-mock"
+          pr_branch="${{ github.event.pull_request.head.ref }}"
+          sync_branch="sync-${pr_branch}-to-${target_branch}"
+
+          echo "Original PR closed; closing corresponding PR..."
+          existing_pr=$(gh pr list --base "$target_branch" --head "$sync_branch" --json number --jq '.[0].number')
+
+          if [ -n "$existing_pr" ]; then
+            gh pr close "$existing_pr" --comment "Closed automatically because the source PR was closed."
+          else
+            echo "No matching sync PR found to close."
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
