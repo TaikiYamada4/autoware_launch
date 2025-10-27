@@ -5,11 +5,10 @@ on:
     types: [opened, reopened, synchronize, closed]
 
 jobs:
-  sync-mock:
+  find-target-branch:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
+    outputs:
+      target_branch: ${{ steps.check.outputs.target_branch }}
 
     steps:
       - name: Detect base branch and compute mock target
@@ -31,31 +30,36 @@ jobs:
             echo "target_branch=$target_branch" >> "$GITHUB_OUTPUT"
           else
             echo "⚠️ No regex match, skipping."
-            echo "match=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-      - name: Stop if not matched
-        if: steps.check.outputs.match == 'false'
-        run: echo "Skipping non-hoge branch." && exit 0
+  sync-mock:
+    runs-on: ubuntu-latest
+    needs: find-target-branch
+    if: ${{ needs.find-target-branch.outputs.target_branch != '' }}
+    permissions:
+      contents: write
+      pull-requests: write
 
-      - name: Checkout repo
-        if: ${{ (github.event.action != 'closed') || (steps.check.outputs.match == 'true') }}
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
+    steps:
       - name: Configure Git identity
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Checkout repo
+        if: github.event.action != 'closed'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
 
       - name: Prepare sync branch
         if: github.event.action != 'closed'
         id: sync
         run: |
           base_branch="${{ github.event.pull_request.base.ref }}"
-          target_branch="${{ steps.check.outputs.target_branch }}"
+          target_branch="${{ needs.find-target-branch.outputs.target_branch }}"
           pr_branch="${{ github.event.pull_request.head.ref }}"
           sync_branch="sync-${pr_branch}-to-${target_branch}"
 
@@ -82,7 +86,7 @@ jobs:
       - name: Create or update PR to target branch
         if: github.event.action != 'closed'
         run: |
-          target_branch="${{ steps.check.outputs.target_branch }}"
+          target_branch="${{ needs.find-target-branch.outputs.target_branch }}"
           sync_branch="${{ steps.sync.outputs.sync_branch }}"
           existing_pr=$(gh pr list --base "$target_branch" --head "$sync_branch" --json number --jq '.[0].number')
 
