@@ -39,7 +39,7 @@ jobs:
         run: echo "Skipping non-hoge branch." && exit 78
 
       - name: Checkout repo
-        if: github.event.action != 'closed'
+        if: or(github.event.action != 'closed', steps.check.outputs.match == 'false')
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.ref }}
