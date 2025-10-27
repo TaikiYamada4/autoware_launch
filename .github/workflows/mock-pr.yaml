@@ -94,7 +94,7 @@ jobs:
 
           # Determine commits in the PR branch that are not in the original base
           pr_base_commit=$(git merge-base "origin/$base_branch" "origin/$pr_branch")
-          commits=$(git log --format="%H" "$pr_base_commit"..origin/"$pr_branch")
+          commits=$(git log --no-merges --format="%H" "$pr_base_commit"..origin/"$pr_branch")
 
           # Cherry-pick each commit onto sync branch
           for commit in $commits; do
