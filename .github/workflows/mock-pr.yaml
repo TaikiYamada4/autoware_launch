@@ -100,6 +100,8 @@ jobs:
           else
             echo "PR #$existing_pr already exists — commits updated."
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-close synced PR when original closes
         if: github.event.action == 'closed'
@@ -117,3 +119,5 @@ jobs:
           else
             echo "No matching sync PR found to close."
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
